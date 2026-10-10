@@ -5,7 +5,7 @@ export interface Poet {
   birthYear?: number; deathYear?: number; isDownloaded: boolean; downloadDate?: string; sortOrder?: number;
 }
 export interface Category { id: number; poetId: number; parentId?: number; title: string; urlSlug?: string }
-export interface Verse { id?: number; poemId: number; coupletIndex: number; order?: number; position: 0 | 1 | null; isPoetry?: boolean; text: string }
+export interface Verse { id?: number; poemId: number; coupletIndex: number; order?: number; position: 0 | 1 | null; isPoetry?: boolean; isPairable?: boolean; text: string }
 export interface Poem {
   id: number; poetId: number; categoryId: number; title: string; fullTitle?: string; rhythm?: string;
   rhymeLetters?: string; format?: 'ghazal' | 'masnavi' | 'qasida' | 'robaee' | 'nimaee' | 'general';

@@ -41,7 +41,11 @@ export default function App() {
   const childCategories = categories.filter((category) => category.parentId === currentCategoryId).sort((a, b) => a.title.localeCompare(b.title, 'fa'));
   const bookPoems = useLiveQuery(() => currentCategoryId === undefined ? [] : db.poems.where('categoryId').equals(currentCategoryId).sortBy('id'), [currentCategoryId]) ?? [];
   const activePoem = useLiveQuery(() => activePoemId === null ? undefined : db.poems.get(activePoemId), [activePoemId]);
-  const verses = useLiveQuery(() => activePoemId === null ? [] : db.verses.where('poemId').equals(activePoemId).sortBy('order'), [activePoemId]) ?? [];
+  const verses = useLiveQuery(async () => {
+    if (activePoemId === null) return [];
+    const rows = await db.verses.where('poemId').equals(activePoemId).toArray();
+    return rows.sort((a, b) => (a.order ?? a.id ?? 0) - (b.order ?? b.id ?? 0));
+  }, [activePoemId]) ?? [];
   const filtered = useMemo(() => {
     const needle = normalizePersian(query);
     return poets.filter((poet) => (!downloadedOnly || poet.isDownloaded) && (!needle || normalizePersian(poet.name).includes(needle)))
@@ -52,6 +56,15 @@ export default function App() {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update); window.addEventListener('offline', update);
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
+  }, []);
+
+  useEffect(() => {
+    const handleBack = (event: PopStateEvent) => {
+      const state = event.state as { vaznReader?: boolean; poemId?: number } | null;
+      setActivePoemId(state?.vaznReader && typeof state.poemId === 'number' ? state.poemId : null);
+    };
+    window.addEventListener('popstate', handleBack);
+    return () => window.removeEventListener('popstate', handleBack);
   }, []);
   useEffect(() => {
     if (!navigator.onLine) return;
@@ -96,10 +109,30 @@ export default function App() {
     }
   };
 
+  const leaveReader = () => {
+    if (history.state?.vaznReader) history.replaceState({ ...history.state, vaznReader: false, poemId: undefined }, '');
+    setActivePoemId(null);
+  };
+
+  const openPoem = (poemId: number) => {
+    history.pushState({ ...(history.state ?? {}), vaznReader: true, poemId }, '');
+    setActivePoemId(poemId);
+  };
+
+  const changeReaderPoem = (poemId: number) => {
+    history.replaceState({ ...(history.state ?? {}), vaznReader: true, poemId }, '');
+    setActivePoemId(poemId);
+  };
+
+  const backFromReader = () => {
+    if (history.state?.vaznReader) history.back();
+    else setActivePoemId(null);
+  };
+
   const startReading = (poet: Poet) => {
+    leaveReader();
     setSelected(poet);
     setCategoryTrail([]);
-    setActivePoemId(null);
     setView('library');
   };
 
@@ -131,7 +164,7 @@ export default function App() {
     }
     setSelected(poet);
     setCategoryTrail(trail);
-    setActivePoemId(poem.id);
+    openPoem(poem.id);
     setView('library');
   };
   const showReader = activePoem && selected;
@@ -142,18 +175,18 @@ export default function App() {
   return <div className="min-h-screen bg-paper text-ink transition-colors dark:bg-night dark:text-nightText">
     <header className="sticky top-0 z-20 border-b border-stone-200/70 bg-paper/90 backdrop-blur-xl dark:border-zinc-800 dark:bg-night/90">
       <div className="mx-auto flex h-[4.5rem] max-w-6xl items-center justify-between px-4 md:px-8">
-        <button onClick={() => { setView('library'); setSelected(null); setCategoryTrail([]); setActivePoemId(null); }} className="flex items-center gap-2.5"><span className="grid h-9 w-9 place-items-center rounded-xl bg-amber text-white"><Feather size={19}/></span><span className="text-xl font-bold">وزن</span><span className="hidden text-xs text-stone-500 sm:inline">گنجینهٔ شعر فارسی</span></button>
+        <button onClick={() => { leaveReader(); setView('library'); setSelected(null); setCategoryTrail([]); }} className="flex items-center gap-2.5"><span className="grid h-9 w-9 place-items-center rounded-xl bg-amber text-white"><Feather size={19}/></span><span className="text-xl font-bold">وزن</span><span className="hidden text-xs text-stone-500 sm:inline">گنجینهٔ شعر فارسی</span></button>
         <nav className="flex items-center gap-1">
-          <button onClick={() => { setView('library'); setActivePoemId(null); }} className={`rounded-xl px-3 py-2 text-sm ${view === 'library' ? 'bg-white text-amber shadow-sm dark:bg-surface' : 'text-stone-500'}`}><span className="inline-flex items-center gap-2"><Library size={16}/>کتابخانه</span></button>
-          <button onClick={() => { setView('saved'); setActivePoemId(null); }} className={`rounded-xl px-3 py-2 text-sm ${view === 'saved' ? 'bg-white text-amber shadow-sm dark:bg-surface' : 'text-stone-500'}`}><span className="inline-flex items-center gap-2"><Heart size={16}/>ذخیره‌ها</span></button>
-          <button onClick={() => { setView('downloads'); setActivePoemId(null); }} className={`rounded-xl px-3 py-2 text-sm ${view === 'downloads' ? 'bg-white text-amber shadow-sm dark:bg-surface' : 'text-stone-500'}`}><span className="inline-flex items-center gap-2"><CloudDownload size={16}/>دانلودها</span></button>
+          <button onClick={() => { leaveReader(); setView('library'); }} className={`rounded-xl px-2 py-2 text-sm sm:px-3 ${view === 'library' ? 'bg-white text-amber shadow-sm dark:bg-surface' : 'text-stone-500'}`} aria-label="کتابخانه" title="کتابخانه"><span className="inline-flex items-center gap-2"><Library size={18}/><span className="hidden sm:inline">کتابخانه</span></span></button>
+          <button onClick={() => { leaveReader(); setView('saved'); }} className={`rounded-xl px-2 py-2 text-sm sm:px-3 ${view === 'saved' ? 'bg-white text-amber shadow-sm dark:bg-surface' : 'text-stone-500'}`} aria-label="ذخیره‌ها" title="ذخیره‌ها"><span className="inline-flex items-center gap-2"><Heart size={18}/><span className="hidden sm:inline">ذخیره‌ها</span></span></button>
+          <button onClick={() => { leaveReader(); setView('downloads'); }} className={`rounded-xl px-2 py-2 text-sm sm:px-3 ${view === 'downloads' ? 'bg-white text-amber shadow-sm dark:bg-surface' : 'text-stone-500'}`} aria-label="دانلودها" title="دانلودها"><span className="inline-flex items-center gap-2"><CloudDownload size={18}/><span className="hidden sm:inline">دانلودها</span></span></button>
           <button onClick={() => setDark((value) => !value)} className="ms-1 rounded-xl p-2.5 text-stone-500 hover:bg-white dark:hover:bg-surface" title="تغییر پوسته">{dark ? <Sun size={17}/> : <Moon size={17}/>}</button>
         </nav>
       </div>
     </header>
 
     {!online && <div className="flex items-center justify-center gap-2 bg-stone-200/70 py-2 text-xs text-stone-600 dark:bg-zinc-900 dark:text-zinc-300"><WifiOff size={14}/> آفلاین هستید · دیوان‌های دریافت‌شده در دسترس‌اند</div>}
-    {view === 'downloads' ? <DownloadManager/> : view === 'saved' ? <SavedPage favorites={favorites} onOpen={(favorite) => void openFavorite(favorite)} onRemove={(favorite) => { if (favorite.id !== undefined) void db.favorites.delete(favorite.id); }}/> : showReader ? <PoemReader poem={activePoem} poetName={selected.name} verses={verses} poemSaved={favorites.some((favorite) => favorite.targetType === 'poem' && favorite.poemId === activePoem.id)} onTogglePoemSaved={() => void togglePoemFavorite(activePoem.id, selected, activePoem.title)} onBack={() => setActivePoemId(null)} onPrevious={activePoemIndex > 0 ? () => setActivePoemId(bookPoems[activePoemIndex - 1].id) : undefined} onNext={activePoemIndex >= 0 && activePoemIndex < bookPoems.length - 1 ? () => setActivePoemId(bookPoems[activePoemIndex + 1].id) : undefined} position={activePoemIndex >= 0 ? { current: activePoemIndex + 1, total: bookPoems.length } : undefined} onToggleTheme={() => setDark((value) => !value)}/> : <main className="mx-auto max-w-6xl px-4 pb-24 pt-9 md:px-8 md:pt-14">
+    {view === 'downloads' ? <DownloadManager/> : view === 'saved' ? <SavedPage favorites={favorites} onOpen={(favorite) => void openFavorite(favorite)} onRemove={(favorite) => { if (favorite.id !== undefined) void db.favorites.delete(favorite.id); }}/> : showReader ? <PoemReader poem={activePoem} poetName={selected.name} verses={verses} poemSaved={favorites.some((favorite) => favorite.targetType === 'poem' && favorite.poemId === activePoem.id)} onTogglePoemSaved={() => void togglePoemFavorite(activePoem.id, selected, activePoem.title)} onBack={backFromReader} onPrevious={activePoemIndex > 0 ? () => changeReaderPoem(bookPoems[activePoemIndex - 1].id) : undefined} onNext={activePoemIndex >= 0 && activePoemIndex < bookPoems.length - 1 ? () => changeReaderPoem(bookPoems[activePoemIndex + 1].id) : undefined} position={activePoemIndex >= 0 ? { current: activePoemIndex + 1, total: bookPoems.length } : undefined} onToggleTheme={() => setDark((value) => !value)}/> : <main className="mx-auto max-w-6xl px-4 pb-24 pt-9 md:px-8 md:pt-14">
       {!selected && <>
       <section className="relative mb-10 overflow-hidden rounded-[2rem] bg-[#efe4cf] px-6 py-9 dark:bg-[#29251f] md:px-12 md:py-14">
         <div className="relative z-10 max-w-2xl"><span className="text-sm font-medium text-amber">کتابخانهٔ شعر فارسی</span><h1 className="mt-3 text-3xl font-semibold leading-relaxed md:text-5xl">هر بیت، <span className="text-amber">همیشه</span> همراه شما</h1><p className="mt-3 max-w-xl text-sm leading-7 text-stone-600 dark:text-zinc-300 md:text-base">شعرهای ماندگار را بخوانید، نگه دارید و حتی بدون اینترنت با خود ببرید.</p></div>
@@ -177,7 +210,7 @@ export default function App() {
         <nav aria-label="مسیر دیوان" className="mb-5 flex flex-wrap items-center gap-2 text-sm text-stone-500"><button onClick={() => setCategoryTrail([])} className="hover:text-amber">{selected.name}</button>{categoryTrail.map((category, index) => <span key={category.id} className="inline-flex items-center gap-2"><span>/</span><button onClick={() => setCategoryTrail(categoryTrail.slice(0, index + 1))} className="hover:text-amber">{category.title}</button></span>)}</nav>
         <div className="mb-4 flex items-end justify-between"><h3 className="text-lg font-medium">{currentCategory?.title ?? 'کتاب‌ها و بخش‌ها'}</h3><span className="text-xs text-stone-500">{childCategories.length} بخش · {bookPoems.length} شعر</span></div>
         {childCategories.length > 0 && <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{childCategories.map((category) => <button key={category.id} onClick={() => setCategoryTrail((trail) => [...trail, category])} className="flex items-center gap-4 rounded-2xl border border-stone-200/70 bg-white p-5 text-right transition hover:border-amber/40 hover:shadow-paper dark:border-zinc-800 dark:bg-surface"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber/10 text-amber"><BookOpen size={20}/></span><span className="min-w-0 flex-1"><span className="block font-medium">{category.title}</span><span className="mt-1 block text-xs text-stone-500">کتاب / بخش شعر</span></span><span className="text-stone-400">←</span></button>)}</div>}
-        {bookPoems.length > 0 && <><h3 className="mb-3 mt-7 text-sm font-semibold text-stone-500">شعرهای این بخش</h3><div className="grid gap-3 sm:grid-cols-2">{bookPoems.map((poem, index) => <button key={poem.id} onClick={() => setActivePoemId(poem.id)} className="rounded-2xl border border-stone-200/70 bg-white p-5 text-right transition hover:border-amber/40 dark:border-zinc-800 dark:bg-surface"><span className="text-xs text-amber">{poem.rhythm || 'شعر فارسی'} · {index + 1}</span><h3 className="mt-2 font-medium">{poem.title}</h3><span className="mt-3 block text-xs text-stone-400">{poem.verseCount} مصراع ←</span></button>)}</div></>}
+        {bookPoems.length > 0 && <><h3 className="mb-3 mt-7 text-sm font-semibold text-stone-500">شعرهای این بخش</h3><div className="grid gap-3 sm:grid-cols-2">{bookPoems.map((poem, index) => <button key={poem.id} onClick={() => openPoem(poem.id)} className="rounded-2xl border border-stone-200/70 bg-white p-5 text-right transition hover:border-amber/40 dark:border-zinc-800 dark:bg-surface"><span className="text-xs text-amber">{poem.rhythm || 'شعر فارسی'} · {index + 1}</span><h3 className="mt-2 font-medium">{poem.title}</h3><span className="mt-3 block text-xs text-stone-400">{poem.verseCount} مصراع ←</span></button>)}</div></>}
         {!childCategories.length && !bookPoems.length && <div className="rounded-2xl border border-dashed border-stone-300 px-6 py-10 text-center dark:border-zinc-700"><p className="font-medium">محتوای ذخیره‌شده‌ای در این بخش نیست</p><p className="mt-2 text-sm text-stone-500">برای دیدن کتاب‌ها و شعرها، دریافت آفلاین شاعر را کامل کنید.</p></div>}
       </section>}
     </main>}

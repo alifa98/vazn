@@ -7,6 +7,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Register from main.tsx so the app can check for updates on launch,
+      // when it returns to the foreground, and periodically while open.
+      injectRegister: false,
       includeAssets: ['pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         name: 'وزن | گنجینه شعر فارسی',

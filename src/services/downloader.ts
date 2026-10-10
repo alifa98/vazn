@@ -5,12 +5,20 @@ export type DownloadProgress = { completed: number; total: number; message: stri
 type ApiRecord = Record<string, any>;
 type CategoryTask = { id: number; parentId?: number; title: string };
 
-function versePosition(value: unknown): 0 | 1 | null {
-  if (typeof value === 'number') return value === 0 ? 0 : value === 1 ? 1 : null;
-  const position = String(value ?? '').trim().toLowerCase();
-  if (['right', 'راست'].includes(position)) return 0;
-  if (['left', 'چپ'].includes(position)) return 1;
-  return null;
+function verseLayout(value: unknown, hasCoupletIndex: boolean): { position: 0 | 1 | null; isPoetry: boolean; isPairable: boolean } {
+  const name = String(value ?? '').trim().toLowerCase().replace(/[ _-]/g, '');
+  const numeric = typeof value === 'number' || /^-?\d+$/.test(name) ? Number(value) : Number.NaN;
+  if (name === 'right' || name === 'راست' || numeric === 0) return { position: 0, isPoetry: true, isPairable: true };
+  if (name === 'left' || name === 'چپ' || numeric === 1) return { position: 1, isPoetry: true, isPairable: true };
+  if (name === 'centeredverse1' || name === 'centeredverse2' || numeric === 2 || numeric === 3) {
+    return { position: numeric === 3 || name === 'centeredverse2' ? 1 : 0, isPoetry: true, isPairable: true };
+  }
+  if (name === 'single' || numeric === 4) return { position: null, isPoetry: true, isPairable: false };
+  if (name === 'paragraph' || name === 'comment' || name === 'prose' || numeric === -1 || numeric === 5) {
+    return { position: null, isPoetry: false, isPairable: false };
+  }
+  // Some API variants omit position but still provide coupletIndex for verse.
+  return { position: null, isPoetry: hasCoupletIndex, isPairable: hasCoupletIndex };
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -89,27 +97,39 @@ export async function downloadPoet(poet: Poet, onProgress: (progress: DownloadPr
       const rawVerses: ApiRecord[] = response.verses ?? rawPoem.verses ?? [];
       let fallbackCoupletIndex = 0;
       let previousFallbackWasRight = false;
-      const verses: Verse[] = rawVerses.map((verse, index) => {
-        const position = versePosition(verse.position);
-        const hasApiOrder = verse.vorder !== null && verse.vorder !== undefined;
-        let coupletIndex: number;
-        if (verse.coupletIndex !== null && verse.coupletIndex !== undefined) coupletIndex = Number(verse.coupletIndex);
-        else if (hasApiOrder) coupletIndex = Math.ceil(Number(verse.vorder) / 2);
-        else if (position === 1 && previousFallbackWasRight) coupletIndex = fallbackCoupletIndex;
-        else coupletIndex = ++fallbackCoupletIndex;
-        previousFallbackWasRight = position === 0;
-        fallbackCoupletIndex = Math.max(fallbackCoupletIndex, coupletIndex);
-        return {
-          poemId: id,
-          // Ganjoor's vorder is the order of a line, while right/left marks the
-          // two halves of a couplet. Unpositioned entries are prose paragraphs.
-          coupletIndex,
-          order: Number(verse.vorder ?? index + 1),
-          position,
-          isPoetry: position !== null,
-          text: String(verse.text ?? verse.plainText ?? ''),
-        };
-      });
+      const verses: Verse[] = [...rawVerses]
+        .map((verse, index) => ({ verse, index }))
+        .sort((left, right) => {
+          const leftOrder = Number(left.verse.vOrder ?? left.verse.vorder ?? left.verse.order ?? left.index + 1);
+          const rightOrder = Number(right.verse.vOrder ?? right.verse.vorder ?? right.verse.order ?? right.index + 1);
+          return leftOrder - rightOrder || left.index - right.index;
+        })
+        .map(({ verse, index }) => {
+          // Ganjoor's JSON uses camelCase (`vOrder`); older mirrors sometimes
+          // expose `vorder` or `order`. Keep the source line order in every case.
+          const apiOrder = verse.vOrder ?? verse.vorder ?? verse.order;
+          const apiPosition = verse.position ?? verse.versePosition;
+          const hasCoupletIndex = verse.coupletIndex !== null && verse.coupletIndex !== undefined;
+          const layout = verseLayout(apiPosition, hasCoupletIndex);
+          const { position } = layout;
+          const hasApiOrder = apiOrder !== null && apiOrder !== undefined;
+          let coupletIndex: number;
+          if (hasCoupletIndex) coupletIndex = Number(verse.coupletIndex);
+          else if (hasApiOrder) coupletIndex = Math.ceil(Number(apiOrder) / 2);
+          else if (position === 1 && previousFallbackWasRight) coupletIndex = fallbackCoupletIndex;
+          else coupletIndex = ++fallbackCoupletIndex;
+          previousFallbackWasRight = position === 0;
+          fallbackCoupletIndex = Math.max(fallbackCoupletIndex, coupletIndex);
+          return {
+            poemId: id,
+            coupletIndex,
+            order: Number(apiOrder ?? index + 1),
+            position,
+            isPoetry: layout.isPoetry,
+            isPairable: layout.isPairable,
+            text: String(verse.text ?? verse.plainText ?? ''),
+          };
+        });
       const poem: Poem = {
         id, poetId: poet.id, categoryId: poemRefs.get(id)!, title: rawPoem.title ?? rawPoem.fullTitle ?? 'بی‌عنوان',
         fullTitle: rawPoem.fullTitle, rhythm: rawPoem.rhythm, rhymeLetters: rawPoem.rhymeLetters,
