@@ -2,17 +2,17 @@ import Dexie, { type Table } from 'dexie';
 
 export interface Poet {
   id: number; name: string; description?: string; fullUrl?: string; rootCatId: number;
-  birthYear?: number; deathYear?: number; isDownloaded: boolean; downloadDate?: string;
+  birthYear?: number; deathYear?: number; isDownloaded: boolean; downloadDate?: string; sortOrder?: number;
 }
 export interface Category { id: number; poetId: number; parentId?: number; title: string; urlSlug?: string }
-export interface Verse { id?: number; poemId: number; coupletIndex: number; position: 0 | 1; text: string }
+export interface Verse { id?: number; poemId: number; coupletIndex: number; order?: number; position: 0 | 1 | null; isPoetry?: boolean; text: string }
 export interface Poem {
   id: number; poetId: number; categoryId: number; title: string; fullTitle?: string; rhythm?: string;
   rhymeLetters?: string; format?: 'ghazal' | 'masnavi' | 'qasida' | 'robaee' | 'nimaee' | 'general';
   verseCount: number; cachedAt?: string;
 }
 export interface Favorite {
-  id?: number; targetType: 'poem' | 'verse'; targetId: number; poemId: number; poetName: string;
+  id?: number; targetType: 'poem' | 'verse'; targetId: number; poemId: number; poetId?: number; poetName: string;
   poemTitle: string; previewText: string; createdAt: number; note?: string;
 }
 

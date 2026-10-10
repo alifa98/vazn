@@ -5,6 +5,14 @@ export type DownloadProgress = { completed: number; total: number; message: stri
 type ApiRecord = Record<string, any>;
 type CategoryTask = { id: number; parentId?: number; title: string };
 
+function versePosition(value: unknown): 0 | 1 | null {
+  if (typeof value === 'number') return value === 0 ? 0 : value === 1 ? 1 : null;
+  const position = String(value ?? '').trim().toLowerCase();
+  if (['right', 'راست'].includes(position)) return 0;
+  if (['left', 'چپ'].includes(position)) return 1;
+  return null;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API}${path}`);
   if (!response.ok) throw new Error(`Ganjoor API error (${response.status})`);
@@ -16,11 +24,21 @@ function unwrap<T extends ApiRecord>(record: ApiRecord, key: string): T {
 }
 
 function categoryChildren(cat: ApiRecord): ApiRecord[] {
-  return cat.subCats ?? cat.categories ?? cat.children ?? [];
+  const direct = cat.subCats ?? cat.categories ?? cat.children;
+  if (direct) return direct;
+  return (cat.catItems ?? []).filter((item: ApiRecord) => {
+    const type = String(item.type ?? item.itemType ?? '').toLowerCase();
+    return Boolean(item.category ?? item.cat ?? item.subCat) || type.includes('cat') || item.isCategory === true;
+  });
 }
 
 function categoryPoems(cat: ApiRecord): ApiRecord[] {
-  return cat.poems ?? cat.poemList ?? [];
+  const direct = cat.poems ?? cat.poemList;
+  if (direct) return direct;
+  return (cat.catItems ?? []).filter((item: ApiRecord) => {
+    const type = String(item.type ?? item.itemType ?? '').toLowerCase();
+    return Boolean(item.poem) || type.includes('poem') || item.isPoem === true;
+  });
 }
 
 export async function downloadPoet(poet: Poet, onProgress: (progress: DownloadProgress) => void, database: VaznDatabase = db): Promise<void> {
@@ -69,12 +87,29 @@ export async function downloadPoet(poet: Poet, onProgress: (progress: DownloadPr
       const response = await getJson<ApiRecord>(`/poem/${id}`);
       const rawPoem = unwrap<ApiRecord>(response, 'poem');
       const rawVerses: ApiRecord[] = response.verses ?? rawPoem.verses ?? [];
-      const verses: Verse[] = rawVerses.map((verse, index) => ({
-        poemId: id,
-        coupletIndex: Number(verse.coupletIndex ?? Math.floor(index / 2) + 1),
-        position: (Number(verse.position ?? index % 2) === 0 ? 0 : 1),
-        text: String(verse.text ?? verse.plainText ?? ''),
-      }));
+      let fallbackCoupletIndex = 0;
+      let previousFallbackWasRight = false;
+      const verses: Verse[] = rawVerses.map((verse, index) => {
+        const position = versePosition(verse.position);
+        const hasApiOrder = verse.vorder !== null && verse.vorder !== undefined;
+        let coupletIndex: number;
+        if (verse.coupletIndex !== null && verse.coupletIndex !== undefined) coupletIndex = Number(verse.coupletIndex);
+        else if (hasApiOrder) coupletIndex = Math.ceil(Number(verse.vorder) / 2);
+        else if (position === 1 && previousFallbackWasRight) coupletIndex = fallbackCoupletIndex;
+        else coupletIndex = ++fallbackCoupletIndex;
+        previousFallbackWasRight = position === 0;
+        fallbackCoupletIndex = Math.max(fallbackCoupletIndex, coupletIndex);
+        return {
+          poemId: id,
+          // Ganjoor's vorder is the order of a line, while right/left marks the
+          // two halves of a couplet. Unpositioned entries are prose paragraphs.
+          coupletIndex,
+          order: Number(verse.vorder ?? index + 1),
+          position,
+          isPoetry: position !== null,
+          text: String(verse.text ?? verse.plainText ?? ''),
+        };
+      });
       const poem: Poem = {
         id, poetId: poet.id, categoryId: poemRefs.get(id)!, title: rawPoem.title ?? rawPoem.fullTitle ?? 'بی‌عنوان',
         fullTitle: rawPoem.fullTitle, rhythm: rawPoem.rhythm, rhymeLetters: rawPoem.rhymeLetters,

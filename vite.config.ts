@@ -15,7 +15,7 @@ export default defineConfig({
         theme_color: '#faf7f0',
         background_color: '#121214',
         display: 'standalone',
-        start_url: './',
+        start_url: './?app=1',
         scope: './',
         dir: 'rtl',
         lang: 'fa',

@@ -26,7 +26,11 @@ export function InstallLanding({ onOpenWebApp }: Props) {
       event.preventDefault();
       setPromptEvent(event as InstallPromptEvent);
     };
-    const appInstalled = () => { setInstalled(true); setPromptEvent(null); };
+    const appInstalled = () => {
+      localStorage.setItem('vazn-installed', 'true');
+      setInstalled(true);
+      setPromptEvent(null);
+    };
     window.addEventListener('beforeinstallprompt', beforeInstall);
     window.addEventListener('appinstalled', appInstalled);
     return () => {
