@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowDown, ArrowUp, BookOpen, CloudDownload, Feather, Heart, Library, Moon, Search, Sun, WifiOff } from 'lucide-react';
 import { db, type Category, type Favorite, type Poet } from './db';
@@ -10,6 +10,7 @@ import { InstallLanding } from './components/InstallLanding';
 import { SavedPage } from './components/SavedPage';
 
 type View = 'library' | 'downloads' | 'saved';
+type ReaderReturnPoint = { view: View; selected: Poet | null; categoryTrail: Category[]; scrollY: number };
 const API = 'https://api.ganjoor.net/api/ganjoor';
 
 function isInstalledLaunch(): boolean {
@@ -30,6 +31,7 @@ export default function App() {
   const [selected, setSelected] = useState<Poet | null>(null);
   const [categoryTrail, setCategoryTrail] = useState<Category[]>([]);
   const [activePoemId, setActivePoemId] = useState<number | null>(null);
+  const readerReturnPoint = useRef<ReaderReturnPoint | null>(null);
   const [dark, setDark] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [downloadProgress, setDownloadProgress] = useState<Record<number, { completed: number; total: number; message: string }>>({});
@@ -58,10 +60,21 @@ export default function App() {
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
   }, []);
 
+  const restoreReaderReturnPoint = () => {
+    const previous = readerReturnPoint.current;
+    readerReturnPoint.current = null;
+    setActivePoemId(null);
+    if (previous) {
+      setView(previous.view);
+      setSelected(previous.selected);
+      setCategoryTrail(previous.categoryTrail);
+      requestAnimationFrame(() => window.scrollTo({ top: previous.scrollY }));
+    }
+  };
+
   useEffect(() => {
-    const handleBack = (event: PopStateEvent) => {
-      const state = event.state as { vaznReader?: boolean; poemId?: number } | null;
-      setActivePoemId(state?.vaznReader && typeof state.poemId === 'number' ? state.poemId : null);
+    const handleBack = () => {
+      if (readerReturnPoint.current) restoreReaderReturnPoint();
     };
     window.addEventListener('popstate', handleBack);
     return () => window.removeEventListener('popstate', handleBack);
@@ -111,10 +124,12 @@ export default function App() {
 
   const leaveReader = () => {
     if (history.state?.vaznReader) history.replaceState({ ...history.state, vaznReader: false, poemId: undefined }, '');
+    readerReturnPoint.current = null;
     setActivePoemId(null);
   };
 
-  const openPoem = (poemId: number) => {
+  const openPoem = (poemId: number, returnPoint: ReaderReturnPoint = { view, selected, categoryTrail, scrollY: window.scrollY }) => {
+    readerReturnPoint.current = returnPoint;
     history.pushState({ ...(history.state ?? {}), vaznReader: true, poemId }, '');
     setActivePoemId(poemId);
   };
@@ -125,8 +140,8 @@ export default function App() {
   };
 
   const backFromReader = () => {
-    if (history.state?.vaznReader) history.back();
-    else setActivePoemId(null);
+    if (history.state?.vaznReader) history.replaceState({ ...history.state, vaznReader: false, poemId: undefined }, '');
+    restoreReaderReturnPoint();
   };
 
   const startReading = (poet: Poet) => {
@@ -152,6 +167,7 @@ export default function App() {
   };
 
   const openFavorite = async (favorite: Favorite) => {
+    const returnPoint: ReaderReturnPoint = { view, selected, categoryTrail, scrollY: window.scrollY };
     const poem = await db.poems.get(favorite.poemId);
     const poet = poem ? await db.poets.get(poem.poetId) : undefined;
     if (!poem || !poet) return;
@@ -164,7 +180,7 @@ export default function App() {
     }
     setSelected(poet);
     setCategoryTrail(trail);
-    openPoem(poem.id);
+    openPoem(poem.id, returnPoint);
     setView('library');
   };
   const showReader = activePoem && selected;
