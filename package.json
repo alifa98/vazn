@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "cp -r dist/* ./.gh-pages && cd ./.gh-pages && git add . && echo 'added to gh-pages, do the commit & push manually' && cd ../"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.3",
